@@ -9,3 +9,8 @@ fs_mgr.overlayfs.prefer_cache_backing_storage=true
 
 ## Multi-Gen LRU
 persist.device_config.mglru_native.lru_gen_config=core_and_mm_walk
+
+# IMS
+persist.dbg.volte_avail_ovr=1
+persist.dbg.wfc_avail_ovr=1
+persist.dbg.allow_ims_off=1
