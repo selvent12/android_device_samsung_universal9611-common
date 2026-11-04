@@ -279,8 +279,7 @@ PRODUCT_SOONG_NAMESPACES += \
     hardware/samsung \
     hardware/samsung_slsi-linaro/exynos/cpboot_v3 \
     hardware/samsung_slsi-linaro/exynos/gralloc/gralloc3 \
-    hardware/samsung_slsi/libbt \
-    vendor/lineage/imsstack-carrier-config-ext
+    hardware/samsung_slsi/libbt
 
 # Task profiles
 PRODUCT_COPY_FILES += \
@@ -332,7 +331,7 @@ PRODUCT_CFI_INCLUDE_PATHS += hardware/samsung_slsi/scsc_wifibt/wpa_supplicant_li
 
 # Userspace IMS and its framework bearer services
 $(call inherit-product, packages/modules/ImsMedia/imsmedia.mk)
-$(call soong_config_set,imsstack_namespace,use_carrier_config_ext,true)
+$(call inherit-product, packages/apps/CarrierSettings/carrier_settings.mk)
 $(call soong_config_set_bool,imsstack_namespace,use_android16_telephony_compat,true)
 
 PRODUCT_PACKAGES += \
