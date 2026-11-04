@@ -339,4 +339,8 @@ PRODUCT_PACKAGES += \
     ImsStack \
     ImsStackOverlay \
     Iwlan \
+    ImsLteGuard \
     QualifiedNetworksService
+
+# Audio debugging
+PRODUCT_PACKAGES_DEBUG += tinymix
