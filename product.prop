@@ -16,5 +16,5 @@ persist.dbg.wfc_avail_ovr=1
 persist.dbg.allow_ims_off=1
 
 # ImsMedia: the VoIP route has no CP call gain, compensate digitally
-persist.radio.imsmedia.rx_gain_db=6
+persist.radio.imsmedia.rx_gain_db=7
 persist.radio.imsmedia.tx_gain_db=9
