@@ -86,6 +86,9 @@ TARGET_USES_VULKAN := true
 BOARD_KERNEL_IMAGE_NAME := Image
 TARGET_KERNEL_NO_GCC := true
 
+# Generic builder identity in /proc/version instead of the host's user@hostname
+TARGET_KERNEL_ADDITIONAL_FLAGS += KBUILD_BUILD_USER=build KBUILD_BUILD_HOST=m21-volte
+
 ## Keymaster
 $(call soong_config_set,samsungVars,target_keymaster4_library,//vendor/samsung/universal9611-common:libskeymaster4device)
 
