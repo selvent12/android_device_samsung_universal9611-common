@@ -17,6 +17,7 @@ android_app {
 prebuilt_etc {
     name: "privapp_whitelist_org.lineageos.imslteguard",
     src: "privapp_whitelist_org.lineageos.imslteguard.xml",
+    filename_from_src: true,
     sub_dir: "permissions",
     system_ext_specific: true,
 }

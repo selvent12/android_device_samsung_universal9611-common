@@ -10,11 +10,13 @@ import static org.lineageos.imslteguard.GuardApp.TAG;
 
 import android.content.Context;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyCallback;
 import android.telephony.TelephonyManager;
+import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsException;
 import android.telephony.ims.ImsMmTelManager;
 import android.telephony.ims.ImsReasonInfo;
@@ -39,6 +41,8 @@ class SubGuard {
     private static final long NO_SERVICE_DELAY_MS = 10_000;
     /** IMS unregistered for this long allows 2G again (CS fallback). */
     private static final long NO_IMS_DELAY_MS = 20_000;
+    /** Emergency hold ends at the latest this long after dialing if no call shows up. */
+    private static final long EMERGENCY_MAX_IDLE_MS = 120_000;
     private static final long IMS_RETRY_MS = 10_000;
 
     private final int mSubId;
@@ -54,9 +58,14 @@ class SubGuard {
     private boolean mImsCallbackRegistered;
     private boolean mStopped;
 
+    /** An emergency call was dialed: keep 2G allowed until it is over. */
+    private boolean mEmergency;
+    private boolean mEmergencyCallSeen;
+
     private boolean mRestricted;
     private Runnable mPending;
     private boolean mPendingRestrict;
+    private long mPendingDeadline;
 
     private final TelephonyCallback mTelephonyCallback = new Callback();
 
@@ -83,6 +92,7 @@ class SubGuard {
             };
 
     private final Runnable mRegisterImsCallback = this::registerImsCallback;
+    private final Runnable mEmergencyTimeout = this::onEmergencyTimeout;
 
     SubGuard(Context context, int subId, Handler handler, Executor executor) {
         mSubId = subId;
@@ -93,14 +103,12 @@ class SubGuard {
     }
 
     void start() {
-        try {
-            mRestricted = mTm.getAllowedNetworkTypesForReason(REASON) == LTE_ONLY;
-        } catch (RuntimeException e) {
-            Log.w(TAG, "sub " + mSubId + ": cannot read allowed network types", e);
-        }
+        // Fail safe: whatever was stored before (crash, reboot), start with 2G
+        // allowed and only restrict again once IMS voice is confirmed on LTE.
+        apply(false, "start");
         mTm.registerTelephonyCallback(mExecutor, mTelephonyCallback);
         registerImsCallback();
-        Log.i(TAG, "sub " + mSubId + ": watching, restricted=" + mRestricted);
+        Log.i(TAG, "sub " + mSubId + ": watching");
         evaluate("start");
     }
 
@@ -108,6 +116,7 @@ class SubGuard {
         mStopped = true;
         mTm.unregisterTelephonyCallback(mTelephonyCallback);
         mHandler.removeCallbacks(mRegisterImsCallback);
+        mHandler.removeCallbacks(mEmergencyTimeout);
         if (mImsCallbackRegistered) {
             mMmTel.unregisterImsRegistrationCallback(mImsCallback);
         }
@@ -131,7 +140,8 @@ class SubGuard {
     }
 
     private class Callback extends TelephonyCallback implements
-            TelephonyCallback.ServiceStateListener, TelephonyCallback.CallStateListener {
+            TelephonyCallback.ServiceStateListener, TelephonyCallback.CallStateListener,
+            TelephonyCallback.OutgoingEmergencyCallListener {
         @Override
         public void onServiceStateChanged(ServiceState serviceState) {
             mServiceState = serviceState;
@@ -141,8 +151,46 @@ class SubGuard {
         @Override
         public void onCallStateChanged(int state) {
             mCallState = state;
+            if (mEmergency) {
+                if (state != TelephonyManager.CALL_STATE_IDLE) {
+                    mEmergencyCallSeen = true;
+                } else if (mEmergencyCallSeen) {
+                    endEmergency();
+                    return;
+                }
+            }
             evaluate("call state");
         }
+
+        @Override
+        public void onOutgoingEmergencyCall(EmergencyNumber number, int subscriptionId) {
+            startEmergency();
+        }
+    }
+
+    private void startEmergency() {
+        mEmergency = true;
+        mEmergencyCallSeen = mCallState != TelephonyManager.CALL_STATE_IDLE;
+        cancelPending();
+        mHandler.removeCallbacks(mEmergencyTimeout);
+        mHandler.postDelayed(mEmergencyTimeout, EMERGENCY_MAX_IDLE_MS);
+        // Immediately, not after a delay: the call may need CS on 2G.
+        apply(false, "emergency call");
+    }
+
+    private void onEmergencyTimeout() {
+        if (mEmergency && !mEmergencyCallSeen) {
+            Log.i(TAG, "sub " + mSubId + ": emergency hold timed out");
+            endEmergency();
+        }
+    }
+
+    private void endEmergency() {
+        mEmergency = false;
+        mEmergencyCallSeen = false;
+        mHandler.removeCallbacks(mEmergencyTimeout);
+        Log.i(TAG, "sub " + mSubId + ": emergency call over");
+        evaluate("emergency over");
     }
 
     private NetworkRegistrationInfo psWwan() {
@@ -178,7 +226,7 @@ class SubGuard {
     }
 
     private void evaluate(String why) {
-        if (mStopped) {
+        if (mStopped || mEmergency) {
             return;
         }
         if (!mRestricted) {
@@ -201,16 +249,18 @@ class SubGuard {
     }
 
     private void schedule(boolean restrict, long delayMs, String reason) {
-        if (mPending != null && mPendingRestrict == restrict) {
-            return; // keep the earlier deadline
+        long deadline = SystemClock.uptimeMillis() + delayMs;
+        if (mPending != null && mPendingRestrict == restrict && mPendingDeadline <= deadline) {
+            return; // an earlier (or equal) deadline for the same action is already set
         }
         cancelPending();
         mPendingRestrict = restrict;
+        mPendingDeadline = deadline;
         mPending = () -> {
             mPending = null;
             apply(restrict, reason);
         };
-        mHandler.postDelayed(mPending, delayMs);
+        mHandler.postAtTime(mPending, deadline);
     }
 
     private void cancelPending() {
