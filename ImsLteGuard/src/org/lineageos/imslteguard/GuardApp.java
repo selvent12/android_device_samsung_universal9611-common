@@ -56,6 +56,19 @@ public class GuardApp extends Application {
         Log.i(TAG, "started");
     }
 
+    /** Keep 2G available for a circuit-switched USSD request on this subscription. */
+    void onUssdStarting(int subId) {
+        if (mHandler == null) {
+            return;
+        }
+        mHandler.post(() -> {
+            SubGuard guard = mGuards.get(subId);
+            if (guard != null) {
+                guard.startUssdHold();
+            }
+        });
+    }
+
     private void updateSubscriptions() {
         List<SubscriptionInfo> infos = mSubscriptionManager.getActiveSubscriptionInfoList();
         SparseArray<SubGuard> keep = new SparseArray<>();

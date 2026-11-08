@@ -18,5 +18,16 @@
         android:label="IMS LTE guard"
         android:persistent="true"
         android:directBootAware="true"
-        android:allowBackup="false" />
+        android:allowBackup="false">
+
+        <receiver
+            android:name=".UssdReceiver"
+            android:directBootAware="true"
+            android:exported="true"
+            android:permission="android.permission.MODIFY_PHONE_STATE">
+            <intent-filter>
+                <action android:name="org.lineageos.imslteguard.action.USSD_STARTING" />
+            </intent-filter>
+        </receiver>
+    </application>
 </manifest>

@@ -43,6 +43,8 @@ class SubGuard {
     private static final long NO_IMS_DELAY_MS = 20_000;
     /** Emergency hold ends at the latest this long after dialing if no call shows up. */
     private static final long EMERGENCY_MAX_IDLE_MS = 120_000;
+    /** How long 2G stays allowed after each USSD request of a session. */
+    private static final long USSD_HOLD_MS = 30_000;
     private static final long IMS_RETRY_MS = 10_000;
 
     private final int mSubId;
@@ -61,6 +63,9 @@ class SubGuard {
     /** An emergency call was dialed: keep 2G allowed until it is over. */
     private boolean mEmergency;
     private boolean mEmergencyCallSeen;
+
+    /** A CS USSD request is in progress: keep 2G allowed. */
+    private boolean mUssdHold;
 
     private boolean mRestricted;
     private Runnable mPending;
@@ -92,6 +97,7 @@ class SubGuard {
             };
 
     private final Runnable mRegisterImsCallback = this::registerImsCallback;
+    private final Runnable mUssdHoldTimeout = this::endUssdHold;
     private final Runnable mEmergencyTimeout = this::onEmergencyTimeout;
 
     SubGuard(Context context, int subId, Handler handler, Executor executor) {
@@ -117,6 +123,7 @@ class SubGuard {
         mTm.unregisterTelephonyCallback(mTelephonyCallback);
         mHandler.removeCallbacks(mRegisterImsCallback);
         mHandler.removeCallbacks(mEmergencyTimeout);
+        mHandler.removeCallbacks(mUssdHoldTimeout);
         if (mImsCallbackRegistered) {
             mMmTel.unregisterImsRegistrationCallback(mImsCallback);
         }
@@ -178,6 +185,26 @@ class SubGuard {
         apply(false, "emergency call");
     }
 
+    void startUssdHold() {
+        if (mStopped) {
+            return;
+        }
+        mUssdHold = true;
+        cancelPending();
+        mHandler.removeCallbacks(mUssdHoldTimeout);
+        mHandler.postDelayed(mUssdHoldTimeout, USSD_HOLD_MS);
+        if (mRestricted) {
+            // Immediately: USSD goes over CS and needs CSFB to 2G.
+            apply(false, "USSD");
+        }
+    }
+
+    private void endUssdHold() {
+        mUssdHold = false;
+        Log.i(TAG, "sub " + mSubId + ": USSD hold over");
+        evaluate("ussd hold over");
+    }
+
     private void onEmergencyTimeout() {
         if (mEmergency && !mEmergencyCallSeen) {
             Log.i(TAG, "sub " + mSubId + ": emergency hold timed out");
@@ -226,7 +253,7 @@ class SubGuard {
     }
 
     private void evaluate(String why) {
-        if (mStopped || mEmergency) {
+        if (mStopped || mEmergency || mUssdHold) {
             return;
         }
         if (!mRestricted) {
